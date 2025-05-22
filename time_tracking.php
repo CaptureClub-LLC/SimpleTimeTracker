@@ -108,7 +108,12 @@ function ttp_time_entry_form_shortcode() {
     $activities[]  = 'Other';
     $date_default  = date_i18n( 'Y-m-d' );
 
-    ob_start(); ?>
+    ob_start();
+    $img_url = plugin_dir_url( __FILE__ ) . 'assets/imgs/time_tracker_logo.png';
+    echo '<img src="' . esc_url( $img_url ) . '" alt="Time Tracker Logo" class="ttp-logo" />';
+
+    ?>
+
     <form method="post" class="ttp-form" >
         <?php wp_nonce_field( 'ttp_time_entry', 'ttp_nonce' ); ?>
 
@@ -194,36 +199,10 @@ add_shortcode( 'time_entry_form', 'ttp_time_entry_form_shortcode' );
  * Handle front-end form submission and save as a custom post
  */
 function ttp_handle_time_entry_submission() {
-    // only run when the form’s “Log Time” button was clicked
-    if ( empty( $_POST['ttp_submit'] ) ) {
-       // echo "No form submission detected.";
-        return;
-    }
 
-    // make sure the form fields actually exist
-    if (
-        ! isset(
-            $_POST['ttp_nonce'],
-            $_POST['ttp_entry_date'],
-            $_POST['ttp_activity'],
-            $_POST['ttp_time_spent']
-        )
-    ) {
-        // print the post in output
-        /*
-        echo '<h2>Form Submission Debug</h2>';
-        echo '<pre>';
-        print_r( $_POST );
-        echo '</pre>';
-        */
-        return;
-    }
 
     // security & auth checks
-    if (
-        ! is_user_logged_in()
-        || ! wp_verify_nonce( sanitize_text_field( $_POST['ttp_nonce'] ), 'ttp_time_entry' )
-    ) {
+    if ( !is_user_logged_in()) {
         echo "You must be logged in to submit a time entry.";
         return;
     }
@@ -286,6 +265,15 @@ add_action( 'admin_enqueue_scripts', 'ttp_enqueue_admin_scripts' );
  * Render the admin page: chart + recent entries table
  */
 function ttp_admin_page_callback() {
+    echo "<style>";
+    echo '.ttp-logo { \n';
+    //echo '   background: url(' ../images / logo . png') no-repeat center;\n';
+    echo 'width: 100px;\n';
+    echo 'height: 100px;\n';
+    echo '}\n';
+    echo "</style>";
+    $img_url = plugin_dir_url( __FILE__ ) . 'assets/imgs/time_tracker_logo.png';
+    echo '<img src="' . esc_url( $img_url ) . '" alt="Time Tracker Logo" class="ttp-logo" />';
     echo '<div class="wrap"><h1>' . esc_html__( 'Time Tracking Summary', 'time-tracking-plugin' ) . '</h1>';
 
     echo '<p>' . esc_html__( 'Use this plugin to allow your team to log hours against predefined activities and review summaries in the admin.', 'time-tracking-plugin' ) . '</p>';
@@ -302,6 +290,7 @@ function ttp_admin_page_callback() {
     echo '<li>' . esc_html__( 'Plugin creates a "Log Time" page on activation.', 'time-tracking-plugin' ) . '</li>';
     echo '</ul>';
     echo '</div>';
+
 
     // Query and aggregate
     $query = new WP_Query(array('post_type'=>'time_entry','posts_per_page'=>-1,'post_status'=>'publish'));
@@ -344,3 +333,28 @@ function ttp_admin_page_callback() {
     <?php
     echo '</div>';
 }
+
+function ttp_enqueue_frontend_assets() {
+    $base = plugin_dir_url( __FILE__ ) . 'assets/';
+
+    // CSS
+    wp_enqueue_style(
+        'ttp-frontend',
+        $base . 'css/frontend.css',
+        array(),
+        '1.0'
+    );
+
+    // JS (if needed)
+    /*
+    wp_enqueue_script(
+        'ttp-frontend',
+        $base . 'js/frontend.js',
+        array( 'jquery' ),
+        '1.0',
+        true
+    );
+    */
+}
+add_action( 'wp_enqueue_scripts', 'ttp_enqueue_frontend_assets' );
+
