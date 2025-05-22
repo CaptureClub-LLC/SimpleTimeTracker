@@ -88,21 +88,35 @@ add_action( 'wp_enqueue_scripts', 'ttp_enqueue_frontend_scripts' );
  * Usage: [time_entry_form]
  */
 function ttp_time_entry_form_shortcode() {
-    // Only allow logged-in users
     if ( ! is_user_logged_in() ) {
         return '<p>' . __( 'Please <a href="' . wp_login_url( get_permalink() ) . '">log in</a> to record time.', 'time-tracking-plugin' ) . '</p>';
     }
 
-    $activities = array( 'Development', 'Meeting', 'Research', 'Design', 'Testing' );
-    $date_default = date_i18n( 'Y-m-d' );
+    $activities = array(
+        'Development',
+        'Meeting',
+        'Research',
+        'Design',
+        'Testing',
+        'Fundraising',
+        'Community Outreach',
+        'Event Planning',
+        'Volunteer Training',
+        'Maintenance',
+        'Administrative Work',
+    );
+    $activities[]  = 'Other';
+    $date_default  = date_i18n( 'Y-m-d' );
 
     ob_start(); ?>
     <form method="post" class="ttp-form">
         <?php wp_nonce_field( 'ttp_time_entry', 'ttp_nonce' ); ?>
+
         <p>
             <label for="ttp_entry_date"><?php _e( 'Date:', 'time-tracking-plugin' ); ?></label>
             <input type="text" name="ttp_entry_date" id="ttp_entry_date" value="<?php echo esc_attr( $date_default ); ?>" required>
         </p>
+
         <p>
             <label for="ttp_activity"><?php _e( 'Activity:', 'time-tracking-plugin' ); ?></label>
             <select name="ttp_activity" id="ttp_activity">
@@ -111,12 +125,48 @@ function ttp_time_entry_form_shortcode() {
                 <?php endforeach; ?>
             </select>
         </p>
+
+        <p id="ttp_activity_other_wrap" style="display:none;">
+            <label for="ttp_activity_other"><?php _e( 'Please specify:', 'time-tracking-plugin' ); ?></label>
+            <input type="text" name="ttp_activity_other" id="ttp_activity_other" maxlength="100">
+        </p>
+
         <p>
             <label for="ttp_time_spent"><?php _e( 'Time (hours):', 'time-tracking-plugin' ); ?></label>
             <input type="number" step="0.25" min="0.25" name="ttp_time_spent" id="ttp_time_spent" required>
         </p>
-        <p><button type="submit" name="ttp_submit"><?php esc_html_e( 'Log Time', 'time-tracking-plugin' ); ?></button></p>
+
+        <p>
+            <button type="submit" name="ttp_submit"><?php esc_html_e( 'Log Time', 'time-tracking-plugin' ); ?></button>
+        </p>
     </form>
+
+    <script>
+    jQuery(function($){
+        $('#ttp_activity').on('change', function(){
+            $('#ttp_activity_other_wrap').toggle( $(this).val() === 'Other' );
+        }).trigger('change');
+    });
+    /*
+    document.addEventListener('DOMContentLoaded', function() {
+      const form = document.querySelector('.ttp-form');
+      const activitySelect = document.getElementById('ttp_activity');
+      const otherInput = document.getElementById('ttp_activity_other');
+
+      form.addEventListener('submit', function(e) {
+        if (activitySelect.value === 'Other') {
+          const custom = otherInput.value.trim();
+          if (!custom) {
+            alert('Please specify an activity.');
+            otherInput.focus();
+            e.preventDefault();
+            return;
+          }
+          activitySelect.value = custom;
+        }
+      });
+    });*/
+    </script>
     <?php
     return ob_get_clean();
 }
@@ -126,28 +176,61 @@ add_shortcode( 'time_entry_form', 'ttp_time_entry_form_shortcode' );
  * Handle front-end form submission and save as a custom post
  */
 function ttp_handle_time_entry_submission() {
-    if ( isset( $_POST['ttp_submit'] ) ) {
-        if ( ! is_user_logged_in() || ! isset( $_POST['ttp_nonce'] ) || ! wp_verify_nonce( $_POST['ttp_nonce'], 'ttp_time_entry' ) ) {
-            return;
-        }
-        $user_id    = get_current_user_id();
-        $entry_date = sanitize_text_field( $_POST['ttp_entry_date'] );
-        $activity   = sanitize_text_field( $_POST['ttp_activity'] );
-        $time_spent = floatval( $_POST['ttp_time_spent'] );
-        if ( $time_spent <= 0 ) {
-            return;
-        }
-        $entry_id = wp_insert_post( array(
-            'post_type'   => 'time_entry',
-            'post_title'  => $entry_date . ' - ' . $activity,
-            'post_status' => 'publish',
-        ) );
-        if ( $entry_id && ! is_wp_error( $entry_id ) ) {
-            update_post_meta( $entry_id, 'user_id',    $user_id );
-            update_post_meta( $entry_id, 'entry_date', $entry_date );
-            update_post_meta( $entry_id, 'activity',   $activity );
-            update_post_meta( $entry_id, 'time_spent', $time_spent );
-        }
+    // only run when the form’s “Log Time” button was clicked
+    if ( empty( $_POST['ttp_submit'] ) ) {
+        echo "No form submission detected.";
+       // return;
+    }
+
+    // make sure the form fields actually exist
+    if (
+        ! isset(
+            $_POST['ttp_nonce'],
+            $_POST['ttp_entry_date'],
+            $_POST['ttp_activity'],
+            $_POST['ttp_time_spent']
+        )
+    ) {
+        // print the post in output
+        echo '<h2>Form Submission Debug</h2>';
+        echo '<pre>';
+        print_r( $_POST );
+        echo '</pre>';
+        return;
+    }
+
+    // security & auth checks
+    if (
+        ! is_user_logged_in()
+        || ! wp_verify_nonce( sanitize_text_field( $_POST['ttp_nonce'] ), 'ttp_time_entry' )
+    ) {
+        echo "You must be logged in to submit a time entry.";
+        return;
+    }
+
+    // sanitize inputs
+    $user_id    = get_current_user_id();
+    $entry_date = sanitize_text_field( $_POST['ttp_entry_date'] );
+    $activity   = sanitize_text_field( $_POST['ttp_activity'] );
+    $time_spent = floatval( $_POST['ttp_time_spent'] );
+
+    // don’t save zero or negative values
+    if ( $time_spent <= 0 ) {
+        return;
+    }
+
+    // create the time_entry post
+    $post_id = wp_insert_post([
+        'post_type'   => 'time_entry',
+        'post_title'  => $entry_date . ' – ' . $activity,
+        'post_status' => 'publish',
+    ]);
+
+    if ( ! is_wp_error( $post_id ) ) {
+        update_post_meta( $post_id, 'user_id',    $user_id );
+        update_post_meta( $post_id, 'entry_date', $entry_date );
+        update_post_meta( $post_id, 'activity',   $activity );
+        update_post_meta( $post_id, 'time_spent', $time_spent );
     }
 }
 add_action( 'init', 'ttp_handle_time_entry_submission' );
@@ -184,6 +267,22 @@ add_action( 'admin_enqueue_scripts', 'ttp_enqueue_admin_scripts' );
  */
 function ttp_admin_page_callback() {
     echo '<div class="wrap"><h1>' . esc_html__( 'Time Tracking Summary', 'time-tracking-plugin' ) . '</h1>';
+
+    echo '<p>' . esc_html__( 'Use this plugin to allow your team to log hours against predefined activities and review summaries in the admin.', 'time-tracking-plugin' ) . '</p>';
+    echo '<h2>' . esc_html__( 'Front-end Usage', 'time-tracking-plugin' ) . '</h2>';
+    echo '<ul>';
+    echo '<li>' . esc_html__( 'Authentication required: only logged-in users can submit entries.', 'time-tracking-plugin' ) . '</li>';
+    echo '<li>' . esc_html__( 'Shortcode: add [time_entry_form] to any page.', 'time-tracking-plugin' ) . '</li>';
+    echo '<li>' . esc_html__( 'Date picker, activity dropdown, and hours input included.', 'time-tracking-plugin' ) . '</li>';
+    echo '</ul>';
+    echo '<h2>' . esc_html__( 'Admin Interface', 'time-tracking-plugin' ) . '</h2>';
+    echo '<ul>';
+    echo '<li>' . esc_html__( 'Summary chart: aggregate hours per activity.', 'time-tracking-plugin' ) . '</li>';
+    echo '<li>' . esc_html__( 'Recent entries: view last 10 submissions.', 'time-tracking-plugin' ) . '</li>';
+    echo '<li>' . esc_html__( 'Plugin creates a "Log Time" page on activation.', 'time-tracking-plugin' ) . '</li>';
+    echo '</ul>';
+    echo '</div>';
+
     // Query and aggregate
     $query = new WP_Query(array('post_type'=>'time_entry','posts_per_page'=>-1,'post_status'=>'publish'));
     $data = array();
