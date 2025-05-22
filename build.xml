@@ -1,0 +1,28 @@
+<project name="my-plugin" default="zip" basedir=".">
+  <!-- properties -->
+  <property name="plugin.name" value="Simple Time Tracker"/>
+  <property name="plugin.version" value="1.0.0"/>
+  <property name="build.dir" value="build"/>
+  <property name="dist.dir" value="dist"/>
+  <property name="zip.file" value="${dist.dir}/${plugin.name}-${plugin.version}.zip"/>
+
+  <!-- remove old build and dist -->
+  <target name="clean">
+    <delete dir="${build.dir}"/>
+    <delete dir="${dist.dir}"/>
+  </target>
+
+  <!-- prepare build directory -->
+  <target name="init">
+    <mkdir dir="${build.dir}"/>
+    <mkdir dir="${dist.dir}"/>
+    <copy todir="${build.dir}">
+      <fileset dir="." excludes="build/**,dist/**,build.xml"/>
+    </copy>
+  </target>
+
+  <!-- create zip archive -->
+  <target name="zip" depends="clean,init">
+    <zip destfile="${zip.file}" basedir="${build.dir}"/>
+  </target>
+</project>
