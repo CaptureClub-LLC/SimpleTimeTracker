@@ -109,7 +109,7 @@ function ttp_time_entry_form_shortcode() {
     $date_default  = date_i18n( 'Y-m-d' );
 
     ob_start(); ?>
-    <form method="post" class="ttp-form">
+    <form method="post" class="ttp-form" >
         <?php wp_nonce_field( 'ttp_time_entry', 'ttp_nonce' ); ?>
 
         <p>
@@ -128,7 +128,7 @@ function ttp_time_entry_form_shortcode() {
 
         <p id="ttp_activity_other_wrap" style="display:none;">
             <label for="ttp_activity_other"><?php _e( 'Please specify:', 'time-tracking-plugin' ); ?></label>
-            <input type="text" name="ttp_activity_other" id="ttp_activity_other" maxlength="100">
+            <input type="text" name="ttp_activity_other" id="ttp_activity_other" maxlength="100" onblur="updateActivity()">
         </p>
 
         <p>
@@ -142,6 +142,24 @@ function ttp_time_entry_form_shortcode() {
     </form>
 
     <script>
+        function updateActivity(){
+            const activitySelect = document.getElementById('ttp_activity');
+            const otherInput = document.getElementById('ttp_activity_other');
+            if (activitySelect.value === 'Other' &&
+                otherInput.value.trim() !== '') {
+                const custom = otherInput.value.trim();
+                if (!custom) {
+                    alert('Please specify an "Other" activity.');
+                    otherInput.focus();
+                    return false;
+                }
+                const newOption = new Option(custom, custom);
+                activitySelect.add(newOption);
+                activitySelect.value = newOption.value;;
+
+            }
+            return true;
+        }
     jQuery(function($){
         $('#ttp_activity').on('change', function(){
             $('#ttp_activity_other_wrap').toggle( $(this).val() === 'Other' );
@@ -178,8 +196,8 @@ add_shortcode( 'time_entry_form', 'ttp_time_entry_form_shortcode' );
 function ttp_handle_time_entry_submission() {
     // only run when the form’s “Log Time” button was clicked
     if ( empty( $_POST['ttp_submit'] ) ) {
-        echo "No form submission detected.";
-       // return;
+       // echo "No form submission detected.";
+        return;
     }
 
     // make sure the form fields actually exist
@@ -192,10 +210,12 @@ function ttp_handle_time_entry_submission() {
         )
     ) {
         // print the post in output
+        /*
         echo '<h2>Form Submission Debug</h2>';
         echo '<pre>';
         print_r( $_POST );
         echo '</pre>';
+        */
         return;
     }
 
