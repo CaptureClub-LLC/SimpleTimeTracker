@@ -17,12 +17,45 @@
     <mkdir dir="${build.dir}"/>
     <mkdir dir="${dist.dir}"/>
     <copy todir="${build.dir}">
-      <fileset dir="." excludes="build/**,dist/**,build.xml"/>
+      <fileset dir="." excludes="lib/**,,dist/**,build.xml"/>
     </copy>
   </target>
 
-  <!-- create zip archive -->
-  <target name="zip" depends="clean,init">
-    <zip destfile="${zip.file}" basedir="${build.dir}"/>
+  <!-- load last version -->
+  <property file="version.properties"/>
+
+  <!-- load last version from a file that only contains the version -->
+  <loadfile property="version" srcFile="version.properties"/>
+
+  <!-- define Python-based bump-version -->
+  <scriptdef name="bump.version" language="python">
+    <classpath>
+      <pathelement location="lib/jython-standalone-2.7.4.jar"/>
+    </classpath>
+    <![CDATA[
+current = project.getProperty("version")
+parts   = current.split(".")
+major, minor, patch = map(int, parts)
+patch  += 1
+if patch > 10:
+    patch = 0
+    minor += 1
+new_version = "{}.{}.{}".format(major, minor, patch)
+project.setProperty("new.version", new_version)
+]]>
+  </scriptdef>
+
+  <!-- target to update version.properties and plugin.version -->
+<target name="bump-version">
+  <bump.version/>
+  <!-- overwrite the file with just the new version string -->
+  <echo file="version.properties" message="${new.version}"/>
+  <property name="version"       value="${new.version}"/>
+  <property name="plugin.version" value="${new.version}"/>
+</target>
+
+  <!-- zip depends on bump-version -->
+  <target name="zip" depends="clean,init,bump-version">
+    <zip destfile="${dist.dir}/${plugin.name}-${plugin.version}.zip" basedir="${build.dir}"/>
   </target>
 </project>

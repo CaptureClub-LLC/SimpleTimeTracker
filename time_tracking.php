@@ -1,7 +1,7 @@
 <?php
 /**
- * Plugin Name:       Time Tracking Plugin
- * Plugin URI:        https://example.com/plugins/time-tracking
+ * Plugin Name:       Simple Time Tracking
+ * Plugin URI:        https://capture.club/plugins/time-tracking
  * Description:       Simple time-tracking plugin with activity dropdown, date picker, and admin visualization.
  * Version:           1.2.0
  * Author:            Kevin Cowan
@@ -13,6 +13,7 @@
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
+
 
 /**
  * Activation hook: create a "Log Time" page with form shortcode
@@ -142,6 +143,12 @@ function ttp_time_entry_form_shortcode() {
         </p>
 
         <p>
+            <label for="ttp_notes"><?php _e( 'Notes (optional):', 'time-tracking-plugin' ); ?></label><br>
+            <textarea id="ttp_notes" name="ttp_notes" rows="3" cols="30"><?php echo esc_textarea( $_POST['ttp_notes'] ?? '' ); ?></textarea>
+        </p>
+
+
+        <p>
             <button type="submit" name="ttp_submit"><?php esc_html_e( 'Log Time', 'time-tracking-plugin' ); ?></button>
         </p>
     </form>
@@ -207,29 +214,36 @@ function ttp_handle_time_entry_submission() {
         return;
     }
 
-    // sanitize inputs
-    $user_id    = get_current_user_id();
-    $entry_date = sanitize_text_field( $_POST['ttp_entry_date'] );
-    $activity   = sanitize_text_field( $_POST['ttp_activity'] );
-    $time_spent = floatval( $_POST['ttp_time_spent'] );
+    if ( isset( $_POST['ttp_submit'] ) ) {
+        // sanitize inputs
+        $user_id = get_current_user_id();
+        $entry_date = sanitize_text_field($_POST['ttp_entry_date']);
+        $activity = sanitize_text_field($_POST['ttp_activity']);
+        $time_spent = floatval($_POST['ttp_time_spent']);
+        $notes = isset( $_POST['ttp_notes'] )
+            ? sanitize_textarea_field( $_POST['ttp_notes'] )
+            : '';
 
-    // don’t save zero or negative values
-    if ( $time_spent <= 0 ) {
-        return;
-    }
 
-    // create the time_entry post
-    $post_id = wp_insert_post([
-        'post_type'   => 'time_entry',
-        'post_title'  => $entry_date . ' – ' . $activity,
-        'post_status' => 'publish',
-    ]);
+        // don’t save zero or negative values
+        if ($time_spent <= 0) {
+            return;
+        }
 
-    if ( ! is_wp_error( $post_id ) ) {
-        update_post_meta( $post_id, 'user_id',    $user_id );
-        update_post_meta( $post_id, 'entry_date', $entry_date );
-        update_post_meta( $post_id, 'activity',   $activity );
-        update_post_meta( $post_id, 'time_spent', $time_spent );
+        // create the time_entry post
+        $post_id = wp_insert_post([
+            'post_type' => 'time_entry',
+            'post_title' => $entry_date . ' – ' . $activity,
+            'post_status' => 'publish',
+        ]);
+
+        if (!is_wp_error($post_id)) {
+            update_post_meta($post_id, 'user_id', $user_id);
+            update_post_meta($post_id, 'entry_date', $entry_date);
+            update_post_meta($post_id, 'activity', $activity);
+            update_post_meta($post_id, 'time_spent', $time_spent);
+            update_post_meta($post_id, 'notes', $notes );
+        }
     }
 }
 add_action( 'init', 'ttp_handle_time_entry_submission' );
@@ -266,11 +280,11 @@ add_action( 'admin_enqueue_scripts', 'ttp_enqueue_admin_scripts' );
  */
 function ttp_admin_page_callback() {
     echo "<style>";
-    echo '.ttp-logo { \n';
+    echo '.ttp-logo { ';
     //echo '   background: url(' ../images / logo . png') no-repeat center;\n';
-    echo 'width: 100px;\n';
-    echo 'height: 100px;\n';
-    echo '}\n';
+    echo 'width: 25%;';
+    //echo 'height: 100px;';
+    echo '}';
     echo "</style>";
     $img_url = plugin_dir_url( __FILE__ ) . 'assets/imgs/time_tracker_logo.png';
     echo '<img src="' . esc_url( $img_url ) . '" alt="Time Tracker Logo" class="ttp-logo" />';
@@ -307,7 +321,7 @@ function ttp_admin_page_callback() {
     <canvas id="ttpTimeChart" width="400" height="200"></canvas>
     <h2><?php _e('Recent Entries', 'time-tracking-plugin'); ?></h2>
     <table class="wp-list-table widefat fixed striped">
-        <thead><tr><th><?php _e('Date','time-tracking-plugin'); ?></th><th><?php _e('User','time-tracking-plugin'); ?></th><th><?php _e('Activity','time-tracking-plugin'); ?></th><th><?php _e('Hours','time-tracking-plugin'); ?></th></tr></thead>
+        <thead><tr><th><?php _e('Date','time-tracking-plugin'); ?></th><th><?php _e('User','time-tracking-plugin'); ?></th><th><?php _e('Activity','time-tracking-plugin'); ?></th><th><?php _e('Hours','time-tracking-plugin'); ?></th><th><?php _e('Notes','time-tracking-plugin'); ?></th></tr></thead>
         <tbody>
         <?php
         $recent = new WP_Query(array('post_type'=>'time_entry','posts_per_page'=>10,'orderby'=>'date','order'=>'DESC'));
@@ -316,7 +330,9 @@ function ttp_admin_page_callback() {
             $user = get_userdata(get_post_meta(get_the_ID(),'user_id',true));
             $act  = get_post_meta(get_the_ID(),'activity',true);
             $hrs  = get_post_meta(get_the_ID(),'time_spent',true);
-            echo '<tr><td>'.esc_html($date).'</td><td>'.esc_html($user->display_name).'</td><td>'.esc_html($act).'</td><td>'.esc_html($hrs).'</td></tr>';
+            $notes = get_post_meta(get_the_ID(),'notes',true);
+
+            echo '<tr><td>'.esc_html($date).'</td><td>'.esc_html($user->display_name).'</td><td>'.esc_html($act).'</td><td>'.esc_html($hrs).'</td><td>'.esc_html($notes).'</td></tr>';
         endwhile; else:
             echo '<tr><td colspan="4">'.__('No entries found.','time-tracking-plugin').'</td></tr>';
         endif;
@@ -325,11 +341,32 @@ function ttp_admin_page_callback() {
         </tbody>
     </table>
     <script>
-        document.addEventListener('DOMContentLoaded',function(){
-            const ctx=document.getElementById('ttpTimeChart').getContext('2d');
-            new Chart(ctx,{type:'bar',data:{labels:<?php echo $labels;?>,datasets:[{label:'<?php esc_js_e('Hours','time-tracking-plugin'); ?>',data:<?php echo $values;?>}]},"options":{scales:{y:{beginAtZero:true,title:{display:true,text:'<?php esc_js_e('Hours','time-tracking-plugin'); ?>'}}}}});
+        document.addEventListener('DOMContentLoaded', function() {
+            const ctx = document.getElementById('ttpTimeChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: <?php echo $labels; ?>,
+                    datasets: [{
+                        label: <?php echo wp_json_encode( __( 'Hours', 'time-tracking-plugin' ) ); ?>,
+                        data: <?php echo $values; ?>
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: <?php echo wp_json_encode( __( 'Hours', 'time-tracking-plugin' ) ); ?>
+                            }
+                        }
+                    }
+                }
+            });
         });
     </script>
+
     <?php
     echo '</div>';
 }
