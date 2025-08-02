@@ -108,12 +108,130 @@ function ttp_enqueue_frontend_scripts() {
 add_action( 'wp_enqueue_scripts', 'ttp_enqueue_frontend_scripts' );
 
 /**
+ * Check if user is logged in when accessing time entry page and redirect if needed
+ */
+function ttp_check_login_redirect() {
+    // Only run on front-end
+    if ( is_admin() ) {
+        return;
+    }
+
+    // Check if we're on the time entry page
+    $time_entry_page_id = get_option( 'ttp_time_entry_page_id' );
+    if ( ! $time_entry_page_id || ! is_page( $time_entry_page_id ) ) {
+        return;
+    }
+
+    // If user is not logged in, redirect to login page
+    if ( ! is_user_logged_in() ) {
+        $current_url = home_url( add_query_arg( array(), $_SERVER['REQUEST_URI'] ) );
+        $login_url = wp_login_url( $current_url );
+        wp_redirect( $login_url );
+        exit;
+    }
+}
+add_action( 'template_redirect', 'ttp_check_login_redirect' );
+
+/**
+ * Redirect users back to time entry page after login
+ */
+function ttp_login_redirect_filter( $redirect_to, $request, $user ) {
+    // Check if there's a redirect_to parameter and it contains our time entry page
+    if ( ! empty( $request ) ) {
+        $time_entry_page_id = get_option( 'ttp_time_entry_page_id' );
+        if ( $time_entry_page_id ) {
+            $time_entry_url = get_permalink( $time_entry_page_id );
+            // If the request URL matches our time entry page, redirect there
+            if ( strpos( $request, get_page_uri( $time_entry_page_id ) ) !== false ) {
+                return $time_entry_url;
+            }
+        }
+    }
+
+    // Default behavior
+    return $redirect_to;
+}
+add_filter( 'login_redirect', 'ttp_login_redirect_filter', 10, 3 );
+
+/**
  * Shortcode to display the front-end time entry form
  * Usage: [time_entry_form]
  */
 function ttp_time_entry_form_shortcode() {
-    if ( isset($_POST['ttp_submit']) && ! is_user_logged_in() ) {
-        //return '<p>' . __( 'Please <a href="' . wp_login_url( get_permalink() ) . '">log in</a> to record time.', 'time-tracking-plugin' ) . '</p>';
+    // If user is not logged in, show login message
+    if ( ! is_user_logged_in() ) {
+        $current_url = get_permalink();
+        $login_url = wp_login_url( $current_url );
+        return '<p>' . sprintf(
+            __( 'Please <a href="%s">log in</a> to record time.', 'time-tracking-plugin' ),
+            esc_url( $login_url )
+        ) . '</p>';
+    }
+
+    // Check for success message
+    $success_message = '';
+    $error_message = '';
+
+    if ( isset( $_GET['ttp_success'] ) && $_GET['ttp_success'] === '1' ) {
+        $entry_date = isset( $_GET['entry_date'] ) ? sanitize_text_field( $_GET['entry_date'] ) : '';
+        $activity = isset( $_GET['activity'] ) ? sanitize_text_field( $_GET['activity'] ) : '';
+        $hours = isset( $_GET['hours'] ) ? floatval( $_GET['hours'] ) : 0;
+
+        if ( $entry_date && $activity && $hours ) {
+            $success_message = '<div class="ttp-success-message">';
+            $success_message .= '<h3>' . esc_html__( 'Time Entry Saved Successfully!', 'time-tracking-plugin' ) . '</h3>';
+            $success_message .= '<p><strong>' . esc_html__( 'Entry Details:', 'time-tracking-plugin' ) . '</strong></p>';
+            $success_message .= '<ul>';
+            $success_message .= '<li><strong>' . esc_html__( 'Date:', 'time-tracking-plugin' ) . '</strong> ' . esc_html( $entry_date ) . '</li>';
+            $success_message .= '<li><strong>' . esc_html__( 'Activity:', 'time-tracking-plugin' ) . '</strong> ' . esc_html( $activity ) . '</li>';
+            $success_message .= '<li><strong>' . esc_html__( 'Hours:', 'time-tracking-plugin' ) . '</strong> ' . esc_html( $hours ) . '</li>';
+            $success_message .= '</ul>';
+
+            // Add link to view all entries
+            $my_entries_page_id = get_option( 'ttp_my_entries_page_id' );
+            if ( $my_entries_page_id ) {
+                $my_entries_url = get_permalink( $my_entries_page_id );
+                $success_message .= '<p><a href="' . esc_url( $my_entries_url ) . '" class="button">' . esc_html__( 'View My Time Entries', 'time-tracking-plugin' ) . '</a></p>';
+            }
+
+            $success_message .= '</div>';
+        }
+    } else {
+        // Check for error information
+        if ( isset( $_GET['ttp_error'] ) ) {
+            $error_code = sanitize_text_field( $_GET['ttp_error'] );
+            $error_details = isset( $_GET['error_details'] ) ? sanitize_text_field( $_GET['error_details'] ) : '';
+
+            $error_message = '<div class="ttp-error-message">';
+            $error_message .= '<h3>' . esc_html__( 'Error Saving Time Entry', 'time-tracking-plugin' ) . '</h3>';
+
+            switch ( $error_code ) {
+                case 'nonce_failed':
+                    $error_message .= '<p>' . esc_html__( 'Security verification failed. Please try again.', 'time-tracking-plugin' ) . '</p>';
+                    break;
+                case 'invalid_hours':
+                    $error_message .= '<p>' . esc_html__( 'Invalid time value. Hours must be greater than 0.', 'time-tracking-plugin' ) . '</p>';
+                    break;
+                case 'db_error':
+                    $error_message .= '<p>' . esc_html__( 'Database error occurred while saving your entry.', 'time-tracking-plugin' ) . '</p>';
+                    if ( $error_details && current_user_can( 'manage_options' ) ) {
+                        $error_message .= '<p><strong>' . esc_html__( 'Technical details:', 'time-tracking-plugin' ) . '</strong> ' . esc_html( $error_details ) . '</p>';
+                    }
+                    break;
+                case 'missing_data':
+                    $error_message .= '<p>' . esc_html__( 'Required fields are missing. Please fill in all required fields.', 'time-tracking-plugin' ) . '</p>';
+                    break;
+                default:
+                    $error_message .= '<p>' . esc_html__( 'An unknown error occurred. Please try again.', 'time-tracking-plugin' ) . '</p>';
+                    if ( $error_details && current_user_can( 'manage_options' ) ) {
+                        $error_message .= '<p><strong>' . esc_html__( 'Error code:', 'time-tracking-plugin' ) . '</strong> ' . esc_html( $error_code ) . '</p>';
+                        $error_message .= '<p><strong>' . esc_html__( 'Details:', 'time-tracking-plugin' ) . '</strong> ' . esc_html( $error_details ) . '</p>';
+                    }
+                    break;
+            }
+
+            $error_message .= '</div>';
+        }
     }
 
     $activities = array(
@@ -135,6 +253,16 @@ function ttp_time_entry_form_shortcode() {
     ob_start();
     $img_url = plugin_dir_url( __FILE__ ) . 'assets/imgs/time_tracker_logo.png';
     echo '<img src="' . esc_url( $img_url ) . '" alt="Time Tracker Logo" class="ttp-logo" />';
+
+    // Display success message if present
+    if ( $success_message ) {
+        echo $success_message;
+    }
+
+    // Display error message if present
+    if ( $error_message ) {
+        echo $error_message;
+    }
 
     ?>
 
@@ -201,11 +329,13 @@ function ttp_time_entry_form_shortcode() {
             }).trigger('change');
         });
         document.addEventListener('DOMContentLoaded', function() {
-            // clear the form
+            // clear the form only if no success message is showing
+            <?php if ( ! isset( $_GET['ttp_success'] ) ): ?>
             const form = document.querySelector('.ttp-form');
             form.reset();
             let notes = document.getElementById('ttp_notes');
             notes.value = "";
+            <?php endif; ?>
         });
 
     </script>
@@ -219,8 +349,14 @@ add_shortcode( 'time_entry_form', 'ttp_time_entry_form_shortcode' );
  * Usage: [my_time_entries]
  */
 function ttp_my_time_entries_shortcode( $atts ) {
-    if ( !is_user_logged_in() ) {
-        //return '<p>' . __( 'Please <a href="' . wp_login_url( get_permalink() ) . '">log in</a> to view your time entries.', 'time-tracking-plugin' ) . '</p>';
+    // If user is not logged in, show login message
+    if ( ! is_user_logged_in() ) {
+        $current_url = get_permalink();
+        $login_url = wp_login_url( $current_url );
+        return '<p>' . sprintf(
+            __( 'Please <a href="%s">log in</a> to view your time entries.', 'time-tracking-plugin' ),
+            esc_url( $login_url )
+        ) . '</p>';
     }
 
     $atts = shortcode_atts( array(
@@ -421,28 +557,52 @@ add_shortcode( 'my_time_entries', 'ttp_my_time_entries_shortcode' );
  * Handle front-end form submission and save as a custom post
  */
 function ttp_handle_time_entry_submission() {
-
-
-    // security & auth checks
-    if ( isset($_POST['ttp_submit']) && !is_user_logged_in()) {
-        return '<p>' . __( 'Please <a href="' . wp_login_url( get_permalink() ) . '">log in</a> to view your time entries.', 'time-tracking-plugin' ) . '</p>';
-
+    // Security & auth checks - redirect if not logged in and trying to submit
+    if ( isset( $_POST['ttp_submit'] ) && ! is_user_logged_in() ) {
+        $time_entry_page_id = get_option( 'ttp_time_entry_page_id' );
+        if ( $time_entry_page_id ) {
+            $redirect_url = get_permalink( $time_entry_page_id );
+            $login_url = wp_login_url( $redirect_url );
+            wp_redirect( $login_url );
+            exit;
+        }
+        return;
     }
 
     if ( isset( $_POST['ttp_submit'] ) ) {
+        $current_url = home_url( add_query_arg( array(), $_SERVER['REQUEST_URI'] ) );
+
+        // Verify nonce
+        if ( ! wp_verify_nonce( $_POST['ttp_nonce'] ?? '', 'ttp_time_entry' ) ) {
+            $redirect_url = add_query_arg( array(
+                'ttp_error' => 'nonce_failed'
+            ), $current_url );
+            wp_redirect( $redirect_url );
+            exit;
+        }
+
         // sanitize inputs
         $user_id = get_current_user_id();
-        $entry_date = sanitize_text_field($_POST['ttp_entry_date']);
-        $activity = sanitize_text_field($_POST['ttp_activity']);
-        $time_spent = floatval($_POST['ttp_time_spent']);
+        $entry_date = sanitize_text_field($_POST['ttp_entry_date'] ?? '');
+        $activity = sanitize_text_field($_POST['ttp_activity'] ?? '');
+        $time_spent = floatval($_POST['ttp_time_spent'] ?? 0);
         $notes = isset( $_POST['ttp_notes'] )
             ? sanitize_textarea_field( $_POST['ttp_notes'] )
             : '';
 
+        // Validate required fields
+        if ( empty( $entry_date ) || empty( $activity ) || $time_spent <= 0 ) {
+            $error_details = '';
+            if ( empty( $entry_date ) ) $error_details .= 'Date is required. ';
+            if ( empty( $activity ) ) $error_details .= 'Activity is required. ';
+            if ( $time_spent <= 0 ) $error_details .= 'Hours must be greater than 0. ';
 
-        // don't save zero or negative values
-        if ($time_spent <= 0) {
-            return;
+            $redirect_url = add_query_arg( array(
+                'ttp_error' => $time_spent <= 0 ? 'invalid_hours' : 'missing_data',
+                'error_details' => urlencode( trim( $error_details ) )
+            ), $current_url );
+            wp_redirect( $redirect_url );
+            exit;
         }
 
         // create the time_entry post
@@ -452,12 +612,39 @@ function ttp_handle_time_entry_submission() {
             'post_status' => 'publish',
         ]);
 
-        if (!is_wp_error($post_id)) {
+        if ( is_wp_error( $post_id ) ) {
+            $redirect_url = add_query_arg( array(
+                'ttp_error' => 'db_error',
+                'error_details' => urlencode( $post_id->get_error_message() )
+            ), $current_url );
+            wp_redirect( $redirect_url );
+            exit;
+        }
+
+        if ( $post_id ) {
             update_post_meta($post_id, 'user_id', $user_id);
             update_post_meta($post_id, 'entry_date', $entry_date);
             update_post_meta($post_id, 'activity', $activity);
             update_post_meta($post_id, 'time_spent', $time_spent);
             update_post_meta($post_id, 'notes', $notes );
+
+            // Redirect with success parameters
+            $redirect_url = add_query_arg( array(
+                'ttp_success' => '1',
+                'entry_date' => urlencode( $entry_date ),
+                'activity' => urlencode( $activity ),
+                'hours' => $time_spent
+            ), $current_url );
+
+            wp_redirect( $redirect_url );
+            exit;
+        } else {
+            $redirect_url = add_query_arg( array(
+                'ttp_error' => 'db_error',
+                'error_details' => urlencode( 'Failed to create post entry' )
+            ), $current_url );
+            wp_redirect( $redirect_url );
+            exit;
         }
     }
 }
@@ -821,8 +1008,56 @@ function ttp_enqueue_frontend_assets() {
         '1.0'
     );
 
-    // Add inline styles for user entries page
+    // Add inline styles for user entries page and success message
     wp_add_inline_style( 'ttp-frontend', '
+        .ttp-success-message {
+            background: #dff0d8;
+            border: 1px solid #d6e9c6;
+            border-radius: 4px;
+            color: #3c763d;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-left: 5px solid #5cb85c;
+        }
+        .ttp-success-message h3 {
+            margin: 0 0 10px 0;
+            color: #3c763d;
+        }
+        .ttp-error-message {
+            background: #f2dede;
+            border: 1px solid #ebccd1;
+            border-radius: 4px;
+            color: #a94442;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-left: 5px solid #d9534f;
+        }
+        .ttp-error-message h3 {
+            margin: 0 0 10px 0;
+            color: #a94442;
+        }
+        .ttp-success-message ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .ttp-success-message li {
+            margin-bottom: 5px;
+        }
+        .ttp-success-message .button {
+            background-color: #5cb85c;
+            border-color: #4cae4c;
+            color: white;
+            text-decoration: none;
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 3px;
+            margin-top: 10px;
+        }
+        .ttp-success-message .button:hover {
+            background-color: #449d44;
+            border-color: #398439;
+            color: white;
+        }
         .ttp-my-entries {
             max-width: 100%;
             margin: 20px 0;
